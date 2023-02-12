@@ -1,0 +1,13 @@
+[package]
+name = "nasus"
+version = "0.1.0"
+edition = "2021"
+description = "nasus is a blazing fast osu bancho IRC crate 🟢"
+repository = ""
+license = "MIT"
+
+[dependencies]
+dotenv = "0.15.0" # TODO remove in next versions
+
+[dev-dependencies]
+dotenv = "0.15.0"
