@@ -1,11 +1,14 @@
 use dotenv::var;
+use peace_performance::{Beatmap, BeatmapExt};
+use reqwest;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 
 pub const HOST: &str = "irc.ppy.sh"; // TODO backup server address cho.ppy.sh
 pub const PORT: u16 = 6667;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let user = var("OSU_USERNAME").expect("OSU_USERNAME must be set");
     let pass = var("OSU_IRC_AUTH").expect("OSU_IRC_AUTH must be set");
 
@@ -101,10 +104,19 @@ fn main() {
                             .expect("Failed to get first arg");
                         // match the action
                         match action {
-                            "listening" => println!("{} IS LISTENING TO {}", sender, url),
-                            "playing" => println!("{} IS PLAYING {}", sender, url),
-                            "watching" => println!("{} IS WATCHING {}", sender, url),
-                            "editing" => println!("{} IS EDITING {}", sender, url),
+                            // println!("{} IS LISTENING TO {}", sender, url),
+                            "listening" => {
+                                reply(calcul_performance(url).await, sender, &mut reader);
+                            }
+                            "playing" => {
+                                reply(calcul_performance(url).await, sender, &mut reader);
+                            }
+                            "watching" => {
+                                reply(calcul_performance(url).await, sender, &mut reader);
+                            }
+                            "editing" => {
+                                reply(calcul_performance(url).await, sender, &mut reader);
+                            }
                             _ => println!("UNKNOWN ACTION '{}' FROM THIS LINE '{}'", action, line),
                         }
                     }
@@ -117,4 +129,93 @@ fn main() {
             _ => println!("UNKNOWN COMMAND '{}' FROM THIS LINE '{}'", command, line),
         }
     }
+}
+
+fn reply(msg: String, receiver: &str, reader: &mut BufReader<TcpStream>) {
+    // print the reply
+    println!("{}", msg);
+    // send the reply
+    let result = reader
+        .get_mut()
+        .write_all(format!("PRIVMSG {} :{}\r\n", receiver, msg).as_bytes());
+    // check if the write was successful
+    match result {
+        Ok(_) => (),
+        Err(why) => panic!("Failed to write: {}", why),
+    }
+}
+
+// implement AsyncRead
+async fn calcul_performance(url: &str) -> String {
+    let beatmap_set_id = url
+        .split('#')
+        .next()
+        .expect("Failed to get first arg")
+        .split('/')
+        .last()
+        .expect("Failed to get last arg");
+    let beatmap_id = url
+        .split('#')
+        .last()
+        .expect("Failed to get last arg")
+        .split('/')
+        .last()
+        .expect("Failed to get last arg");
+    // download the map
+    let file_name = download_map(beatmap_id.parse().expect("Failed to parse beatmap_id")).await;
+    // open the file
+    let file = match tokio::fs::File::open(format!("maps/{}", file_name)).await {
+        Ok(file) => file,
+        Err(why) => panic!("Could not open file: {}", why),
+    };
+    // parse the map asynchronously
+    let map = match Beatmap::parse(file).await {
+        Ok(map) => map,
+        Err(why) => panic!("Error while parsing map: {}", why),
+    };
+    // accuracy list of 95%, 97%, 98%, 99%, 100%
+    let acc = [95.0, 97.0, 98.0, 99.0, 100.0];
+    let mut pp = [0.0, 0.0, 0.0, 0.0, 0.0];
+    // calculate pp for each acc
+    for (i, acc) in acc.iter().enumerate() {
+        pp[i] = map.pp().accuracy(*acc).calculate().await.pp();
+    }
+    // create a string with the pp values
+    let mut result = format!(
+        "[https://osu.ppy.sh/beatmapsets/{}#/{} Map] ",
+        beatmap_set_id, beatmap_id
+    );
+    for (i, pp) in pp.iter().enumerate() {
+        result.push_str(&format!("{}%: {}pp | ", acc[i], pp.round()));
+    }
+    // remove the extra separator symbol
+    result.pop();
+    // return the string
+    result
+}
+
+// function that takes an ID and downloads a file from a url
+async fn download_map(beatmap_id: i32) -> String {
+    let url = format!("https://osu.ppy.sh/osu/{}", beatmap_id);
+    // use reqwest to get the file
+    let response = reqwest::get(&url).await.unwrap();
+    // get the file name from the response
+    let filename = response
+        .url()
+        .path_segments()
+        .unwrap()
+        .last()
+        .unwrap()
+        .to_string();
+    // make sure a folder called 'maps' exists, if not create it
+    std::fs::create_dir_all("maps").expect("Failed to create directory");
+    // create a file with the same name in a folder called 'maps'
+    // TODO implement a long term data storage
+    let mut file =
+        std::fs::File::create(format!("maps/{}", filename)).expect("Failed to create file");
+    // write the response to the file
+    file.write_all(&response.bytes().await.expect("Failed to read bytes"))
+        .expect("Failed to write file");
+    // return the file name
+    filename
 }
