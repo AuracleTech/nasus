@@ -9,8 +9,11 @@ async fn main() {
     let irc_token = dotenv::var("OSU_IRC_AUTH").expect("OSU_IRC_AUTH must be set");
 
     let mut nasus = Nasus::new(username, irc_token).await;
-    nasus.on(EventType::PrivMsg, |event| {
-        println!("{}: {}", event.sender.bold().bright_cyan(), event.message);
+    nasus.on(|event| match event.event_type {
+        EventType::PrivMsg => {
+            println!("{}: {}", event.sender.bold().bright_cyan(), event.message);
+        }
+        _ => {}
     });
     // nasus.on(EventType::PrivMsg, |event| {
     //     println!("{}: {}", event.sender, event.message);

@@ -71,14 +71,13 @@ impl Nasus {
         }
     }
 
-    pub fn on<F>(&mut self, event_type: EventType, handler: F)
+    pub fn on<F>(&mut self, handler: F)
     where
         F: Fn(&BanchoEvent) + Send + Sync + 'static,
     {
+        // add the handler to the list of handlers
         self.event_handlers.push(Box::new(move |event| {
-            if event.event_type == event_type {
-                handler(event);
-            }
+            handler(event);
         }));
     }
 
@@ -95,6 +94,10 @@ impl Nasus {
                 let pong_message = event.message.replace("PING", "PONG");
                 self.send_bancho(pong_message).await;
             }
+            // log when auth succeeds
+            EventType::AuthSuccess => println!("Successfully authenticated as {}", self.username),
+            // log when auth fails
+            EventType::AuthFailed => println!("Failed to authenticate as {}", self.username),
             _ => (),
         }
         // for each event registered
