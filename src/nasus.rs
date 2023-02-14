@@ -36,7 +36,7 @@ pub struct Nasus {
 impl Nasus {
     pub async fn new(username: String, irc_token: String) -> Self {
         // create the stream
-        let stream = init_stream().await;
+        let stream = create_stream().await;
         // username needs formatting for the irc auth message
         let username_auth_format = username.replace(" ", "_");
         // auth message
@@ -229,7 +229,7 @@ impl Nasus {
     }
 }
 
-async fn init_stream() -> TcpStream {
+async fn create_stream() -> TcpStream {
     const IP_LIST: [&str; 2] = ["irc.ppy.sh", "cho.ppy.sh"];
     const PORT: u16 = 6667;
     const RETRY_INTERVAL_MS: u64 = 5000;
@@ -255,11 +255,18 @@ async fn init_stream() -> TcpStream {
         }
     }
     // unwrap the stream
-    let stream = stream.expect("UNREACHABLE ERROR, PLEASE REPORT THIS TO THE DEVELOPER");
+    let stream = stream.expect("Failed to unwrap stream");
+    // return the stream
     stream
 }
 
-async fn calcul_performance(url: &str) -> String {
+/**
+ * Calculate the performance of a beatmap
+ * @param url The beatmap URL
+ * @return String containing the performance of the beatmap (95, 97, 98, 99, 100% acc)
+ */
+pub async fn calcul_performance(url: &str) -> String {
+    // TODO move URL parsing beatmap ID to a function
     let beatmap_set_id = url
         .split('#')
         .next()
@@ -286,6 +293,7 @@ async fn calcul_performance(url: &str) -> String {
         Ok(map) => map,
         Err(why) => panic!("Error while parsing map: {}", why),
     };
+    // TODO pass acc list as a parameter
     // accuracy list of 95%, 97%, 98%, 99%, 100%
     let acc = [95.0, 97.0, 98.0, 99.0, 100.0];
     let mut pp = [0.0, 0.0, 0.0, 0.0, 0.0];
@@ -294,6 +302,7 @@ async fn calcul_performance(url: &str) -> String {
         pp[i] = map.pp().accuracy(*acc).calculate().await.pp();
     }
     // create a string with the pp values
+    // TODO create and return a PerformanceResult struct
     let mut result = format!(
         "[https://osu.ppy.sh/beatmapsets/{}#/{} Map] ",
         beatmap_set_id, beatmap_id
@@ -307,7 +316,11 @@ async fn calcul_performance(url: &str) -> String {
     result
 }
 
-// function that takes an ID and downloads a file from a url
+/**
+ * Download a beatmap using the beatmap id (not the beatmap set id)
+ * @param beatmap_id the beatmap id
+ * @return String the file path of the .osu file
+ */
 async fn download_map(beatmap_id: i32) -> String {
     let url = format!("https://osu.ppy.sh/osu/{}", beatmap_id);
     // use reqwest to get the file
@@ -330,5 +343,7 @@ async fn download_map(beatmap_id: i32) -> String {
     file.write_all(&response.bytes().await.expect("Failed to read bytes"))
         .expect("Failed to write file");
     // return the file name
+    // TODO return the full path
+    // TEST verify .osu extension is present
     filename
 }

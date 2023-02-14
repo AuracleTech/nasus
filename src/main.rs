@@ -10,7 +10,7 @@ async fn main() {
 
     let mut nasus = Nasus::new(username, irc_token).await;
     nasus.on(EventType::PrivMsg, |event| {
-        println!("{}: {}", event.sender.bold().bright_yellow(), event.message);
+        println!("{}: {}", event.sender.bold().bright_cyan(), event.message);
     });
     // nasus.on(EventType::PrivMsg, |event| {
     //     println!("{}: {}", event.sender, event.message);
@@ -34,5 +34,6 @@ async fn main() {
     //         message: "Hello!".to_owned(),
     //     })
     //     .await;
+    // needs to be called less than 180 seconds after connecting
     nasus.listen().await;
 }
