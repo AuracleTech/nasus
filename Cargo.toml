@@ -3,15 +3,15 @@ name = "nasus"
 version = "0.1.0"
 edition = "2021"
 description = "nasus is a blazing fast osu bancho IRC crate 🟢"
-repository = ""
-license = "MIT"
+repository = "https://github.com/AuracleTech/nasus/"
 
 [dependencies]
-futures = "0.3"
-dotenv = "0.15.0" # TODO remove in next versions
+tokio = { version = "1.25.0", features = ["full"] }
 peace-performance = "0.4.0"
 reqwest = "0.11.14"
-tokio = { version = "1.25.0", features = ["full"] }
+futures = "0.3"
+dotenv = "0.15.0" # TODO remove in BETA version
+colored = "2.0.0" # TODO remove in BETA version
 
 [dev-dependencies]
 dotenv = "0.15.0"

@@ -1,7 +1,6 @@
-use std::io::Write;
-
 use peace_performance::{Beatmap, BeatmapExt};
 use reqwest;
+use std::io::Write;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
@@ -28,13 +27,13 @@ pub struct BanchoEvent {
     pub message: String,
 }
 
-pub struct Connection {
+pub struct Nasus {
     event_handlers: Vec<Box<dyn Fn(&BanchoEvent) + Send + Sync + 'static>>,
     reader: BufReader<TcpStream>,
     username: String,
 }
 
-impl Connection {
+impl Nasus {
     pub async fn new(username: String, irc_token: String) -> Self {
         // create the stream
         let stream = init_stream().await;
@@ -43,15 +42,15 @@ impl Connection {
         // auth message
         let login = format!("PASS {}\r\nNICK {}\r\n", irc_token, username_auth_format);
         // create the connection
-        let mut connection = Self {
+        let mut nasus = Self {
             username,
             event_handlers: Vec::new(),
             reader: BufReader::new(stream),
         };
         // send auth message
-        connection.send_bancho(login).await;
+        nasus.send_bancho(login).await;
         // return the connection
-        connection
+        nasus
     }
 
     pub async fn listen(&mut self) {
@@ -72,7 +71,7 @@ impl Connection {
         }
     }
 
-    pub fn register_event<F>(&mut self, event_type: EventType, handler: F)
+    pub fn on<F>(&mut self, event_type: EventType, handler: F)
     where
         F: Fn(&BanchoEvent) + Send + Sync + 'static,
     {
@@ -83,21 +82,34 @@ impl Connection {
         }));
     }
 
+    /**
+     * Emit an event to all registered event handlers
+     * @param event the event to emit
+     */
     pub async fn emit_event(&mut self, event: &BanchoEvent) {
         match event.event_type {
+            // print the error message
             EventType::Error => println!("EventType::Error thrown with buffer: {}", event.message),
+            // reply PONG to PING to maintain the connection
             EventType::Ping => {
-                // reply PONG to PING to maintain the connection
                 let pong_message = event.message.replace("PING", "PONG");
                 self.send_bancho(pong_message).await;
             }
             _ => (),
         }
+        // for each event registered
         for handler in &self.event_handlers {
+            // call the handler
             handler(event);
         }
     }
 
+    /**
+     * Parses a line received from the bancho server
+     * @param line the line to parse
+     * @return BanchoEvent the parsed event
+     *
+     */
     async fn parse_line(&self, line: String) -> BanchoEvent {
         if line.starts_with("PING") {
             return BanchoEvent {
@@ -115,8 +127,9 @@ impl Connection {
         // PING cho.ppy.sh\r\n
         let split_line = line.clone();
         let mut split_line = split_line.split(' ');
-        let receiver = self.username.clone();
-        // get the first art example :Tillerino!cho@ppy.sh
+        // the person who received the message
+        let mut receiver = self.username.clone();
+        // get the first arg example :Tillerino!cho@ppy.sh
         let mut sender = split_line.next().expect("Failed to get first arg");
         // trim the first character ':'
         sender = sender.trim_start_matches(':');
@@ -137,12 +150,25 @@ impl Connection {
             "376" => EventType::MotdEnd,
             "QUIT" => EventType::Quit,
             "PRIVMSG" => {
-                // trim my username plus a space and a colon
-                message.drain(..receiver.len() + 2);
-                // get the new first character of the message
+                // split the message by spaces
+                let mut split_message = message.split(' ');
+                // get the first word of the message
+                receiver = split_message
+                    .next()
+                    .expect("Failed to get first arg")
+                    .to_string();
+                // trim the receiver from the message
+                message = message.trim_start_matches(&receiver).to_string();
+                // trim a space from the message
+                message = message.trim_start_matches(' ').to_string();
+                // get the first character of the message after the receiver
                 let first_char = message.chars().next().expect("Failed to get first char");
-                // match first character of the message
+                // trim the first character from the message
+                message = message.trim_start_matches(first_char).to_string();
+                // match the first character of the message
                 match first_char {
+                    // if it starts with a colon it's a normal message
+                    ':' => (),
                     // if it's an action the message looks like this
                     // \x01ACTION is listening to [https://osu.ppy.sh/beatmapsets/57525#/173391 Igorrr - Pavor Nocturnus]\x01
                     '\x01' => {
@@ -166,11 +192,11 @@ impl Connection {
                             "playing" => {}
                             "watching" => {}
                             "editing" => {}
-                            _ => println!("UNKNOWN ACTION '{}' FROM MESSAGE: '{}'", action, line),
+                            _ => println!("UNKNOWN ACTION '{}' FROM '{}'", action, line),
                         }
                         message = calcul_performance(url).await;
                     }
-                    _ => println!("UNKNOWN MESSAGE '{}' FROM MESSAGE: '{}'", message, line),
+                    _ => println!("UNKNOWN FIRST CHARACTER '{}' FROM '{}'", message, line),
                 }
                 EventType::PrivMsg
             }
@@ -182,8 +208,8 @@ impl Connection {
         // return the event
         BanchoEvent {
             event_type,
-            sender: sender.to_owned(),
-            receiver: receiver.to_owned(),
+            sender: sender.to_string(),
+            receiver: receiver.to_string(),
             message,
         }
     }
