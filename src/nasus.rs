@@ -6,54 +6,114 @@ use tokio::{
     net::TcpStream,
 };
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Debug)]
 pub enum EventType {
+    // when auth succeeds
     AuthSuccess,
+    // when auth fails
     AuthFailed,
+    // start of the message of the day
     MotdStart,
+    // message of the day
     Motd,
+    // end of the message of the day
     MotdEnd,
+    // when a user leaves the chat
     Quit,
+    // private message
     PrivMsg,
+    // private message action in private chat example /me is dancing, /np etc...
+    PrivAction,
+    // when bancho server ping
     Ping,
+    // when attempting to connect to bancho
+    Connecting,
+    // when bancho connection is established
+    Connected,
+    // when bancho connection fails
+    ConnectionFailed,
+    // when an error occurs
     Error,
 }
 
 #[derive(Debug)]
-pub struct BanchoEvent {
+pub struct EventBancho {
     pub event_type: EventType,
     pub sender: String,
     pub receiver: String,
     pub message: String,
 }
 
-pub struct Nasus {
-    event_handlers: Vec<Box<dyn Fn(&BanchoEvent) + Send + Sync + 'static>>,
-    reader: BufReader<TcpStream>,
+pub struct Connection {
     username: String,
+    reader: BufReader<TcpStream>,
 }
 
-impl Nasus {
-    pub async fn new(username: String, irc_token: String) -> Self {
+impl Connection {
+    pub async fn new(dispatcher: &mut EventDispatcher) -> Self {
         // create the stream
-        let stream = create_stream().await;
+        const IP_LIST: [&str; 2] = ["irc.ppy.sh", "cho.ppy.sh"];
+        const PORT: u16 = 6667;
+        const RETRY_INTERVAL_MS: u64 = 5000;
+        // create the stream
+        let mut reader: Option<TcpStream> = None;
+        // loop until the stream is successful
+        while reader.is_none() {
+            for ip in IP_LIST {
+                let address = format!("{}:{}", ip, PORT);
+                // emit connecting event
+                dispatcher.distribute(EventBancho {
+                    event_type: EventType::Connecting,
+                    sender: String::new(),
+                    receiver: String::new(),
+                    message: format!("Connecting to {}", address),
+                });
+                match TcpStream::connect(address).await {
+                    Ok(s) => {
+                        dispatcher.distribute(EventBancho {
+                            event_type: EventType::Connected,
+                            sender: String::new(),
+                            receiver: String::new(),
+                            message: format!("Connection established with {}:{}", ip, PORT),
+                        });
+                        reader = Some(s);
+                        break;
+                    }
+                    Err(_) => {
+                        dispatcher.distribute(EventBancho {
+                            event_type: EventType::ConnectionFailed,
+                            sender: String::new(),
+                            receiver: String::new(),
+                            message: format!(
+                                "Connection with {}:{} failed, retrying in {}ms",
+                                ip, PORT, RETRY_INTERVAL_MS
+                            ),
+                        });
+                        tokio::time::sleep(std::time::Duration::from_millis(RETRY_INTERVAL_MS))
+                            .await;
+                        continue;
+                    }
+                }
+            }
+        }
+        // unwrap the stream
+        let stream = reader.expect("Failed to unwrap stream");
+        Self {
+            username: String::new(),
+            reader: BufReader::new(stream),
+        }
+    }
+
+    pub async fn login(&mut self, username: &str, irc_token: &str) {
         // username needs formatting for the irc auth message
         let username_auth_format = username.replace(" ", "_");
         // auth message
         let login = format!("PASS {}\r\nNICK {}\r\n", irc_token, username_auth_format);
-        // create the connection
-        let mut nasus = Self {
-            username,
-            event_handlers: Vec::new(),
-            reader: BufReader::new(stream),
-        };
         // send auth message
-        nasus.send_bancho(login).await;
-        // return the connection
-        nasus
+        self.send_server_raw(login).await;
     }
 
-    pub async fn listen(&mut self) {
+    pub async fn listen(&mut self, dispatcher: &mut EventDispatcher) {
         let mut line = String::new();
         loop {
             // prepare buffer for reading
@@ -67,13 +127,144 @@ impl Nasus {
             // parse the line
             let event = self.parse_line(line.clone());
             // emit the event
-            self.emit_event(&event.await).await;
+            dispatcher.distribute(event.await);
         }
     }
 
+    pub async fn _send_private_message(&mut self, receiver: &str, message: &str) {
+        let message = format!("PRIVMSG {} :{}\r\n", receiver, message);
+        self.send_server_raw(message).await;
+    }
+
+    /**
+     * Send a message to the bancho server
+     * @param message The message to send
+     */
+    pub async fn send_server_raw(&mut self, message: String) {
+        // send using reader
+        let response = self.reader.write_all(message.as_bytes()).await;
+        // check if the response is an error
+        match response {
+            Ok(_) => (),
+            Err(e) => println!("Error sending message: {}", e),
+        }
+    }
+
+    /**
+     * Parses a line received from the bancho server
+     * @param line the line to parse
+     * @return BanchoEvent the parsed event
+     *
+     */
+    // TODO make Parser its own struct
+    async fn parse_line(&mut self, line: String) -> EventBancho {
+        // create a new event
+        let mut event = EventBancho {
+            event_type: EventType::Error,
+            sender: String::new(),
+            // the person who received the message
+            receiver: self.username.clone(),
+            message: line.clone(),
+        };
+        // ping communications are unique and need to be handled separately, they look like this
+        // PING cho.ppy.sh\r\n
+        if line.starts_with("PING") {
+            self.send_server_raw(line.replace("PING", "PONG")).await;
+            event.event_type = EventType::Ping;
+            return event;
+        }
+        // most bancho communications are in this format
+        // :Tillerino!cho@ppy.sh PRIVMSG Auracle :You really look terrible today you should try sunscream...\r\n
+        // the first part is the sender, the second part is the command and the rest depends on the command
+        let split_line = line.clone();
+        let mut split_line = split_line.split(' ');
+        // get the first arg example :Tillerino!cho@ppy.sh
+        event.sender = split_line
+            .next()
+            .expect("Failed to get first arg")
+            .to_string();
+        // trim the first character ':'
+        event.sender = event.sender.trim_start_matches(':').to_string();
+        // keep everything before the first '!'
+        event.sender = event
+            .sender
+            .split('!')
+            .next()
+            .expect("Failed to get first arg")
+            .to_string();
+        // get the second arg example PRIVMSG
+        let command = split_line.next().expect("Failed to get second arg");
+        // join the rest of the split line
+        let mut message = split_line.clone().collect::<Vec<&str>>().join(" ");
+        // trim the message whitespace
+        message = message.trim().to_string();
+        event.event_type = match command {
+            "464" => EventType::AuthFailed,
+            "001" => EventType::AuthSuccess,
+            "375" => EventType::MotdStart,
+            "372" => EventType::Motd,
+            "376" => EventType::MotdEnd,
+            "QUIT" => EventType::Quit,
+            "PRIVMSG" => {
+                let mut event_type = EventType::PrivMsg;
+                // split the message by spaces
+                let mut split_message = message.split(' ');
+                // get the first word of the message
+                event.receiver = split_message
+                    .next()
+                    .expect("Failed to get first arg")
+                    .to_string();
+                // trim the receiver from the message
+                event.message = event
+                    .message
+                    .trim_start_matches(&event.receiver)
+                    .to_string();
+                // trim a space from the message
+                event.message = event.message.trim_start_matches(' ').to_string();
+                // remove the semi colon from the message
+                event.message = event.message.trim_start_matches(':').to_string();
+                // ACTION messages starts with a special character
+                let first_char = event
+                    .message
+                    .chars()
+                    .next()
+                    .expect("Failed to get first char");
+                // :\x01ACTION is listening to [https://osu.ppy.sh/beatmapsets/995092#/2301941 Camellia - Introduction - Akashic Records' Data Collapse]\x01
+                if first_char == '\x01' {
+                    event_type = EventType::PrivAction;
+                    // remove the word ACTION a space and the first special character
+                    event.message.drain(..8);
+                }
+                event_type
+            }
+            _ => EventType::Error,
+        };
+        event
+    }
+}
+
+pub struct EventDispatcher {
+    event_handlers: Vec<Box<dyn Fn(&EventBancho) + Send + Sync + 'static>>,
+}
+
+impl EventDispatcher {
+    /**
+     * Create a new event dispatcher
+     * @return EventDispatcher the new event dispatcher
+     */
+    pub fn new() -> Self {
+        Self {
+            event_handlers: Vec::new(),
+        }
+    }
+
+    /**
+     * Register an event handler
+     * @param handler the handler to register
+     */
     pub fn on<F>(&mut self, handler: F)
     where
-        F: Fn(&BanchoEvent) + Send + Sync + 'static,
+        F: Fn(&EventBancho) + Send + Sync + 'static,
     {
         // add the handler to the list of handlers
         self.event_handlers.push(Box::new(move |event| {
@@ -85,182 +276,13 @@ impl Nasus {
      * Emit an event to all registered event handlers
      * @param event the event to emit
      */
-    pub async fn emit_event(&mut self, event: &BanchoEvent) {
-        match event.event_type {
-            // print the error message
-            EventType::Error => println!("EventType::Error thrown with buffer: {}", event.message),
-            // reply PONG to PING to maintain the connection
-            EventType::Ping => {
-                let pong_message = event.message.replace("PING", "PONG");
-                self.send_bancho(pong_message).await;
-            }
-            // log when auth succeeds
-            EventType::AuthSuccess => println!("Successfully authenticated as {}", self.username),
-            // log when auth fails
-            EventType::AuthFailed => println!("Failed to authenticate as {}", self.username),
-            _ => (),
-        }
+    pub fn distribute(&mut self, event: EventBancho) {
         // for each event registered
         for handler in &self.event_handlers {
             // call the handler
-            handler(event);
+            handler(&event);
         }
     }
-
-    /**
-     * Parses a line received from the bancho server
-     * @param line the line to parse
-     * @return BanchoEvent the parsed event
-     *
-     */
-    async fn parse_line(&self, line: String) -> BanchoEvent {
-        if line.starts_with("PING") {
-            return BanchoEvent {
-                event_type: EventType::Ping,
-                sender: String::new(),
-                receiver: String::new(),
-                message: line,
-            };
-        }
-
-        // most bancho communications are in this format
-        // :Tillerino!cho@ppy.sh PRIVMSG Auracle :You really look terrible today you should try sunscream...\r\n
-        // the first part is the sender, the second part is the command and the rest depends on the command
-        // except for PING messages that look like this
-        // PING cho.ppy.sh\r\n
-        let split_line = line.clone();
-        let mut split_line = split_line.split(' ');
-        // the person who received the message
-        let mut receiver = self.username.clone();
-        // get the first arg example :Tillerino!cho@ppy.sh
-        let mut sender = split_line.next().expect("Failed to get first arg");
-        // trim the first character ':'
-        sender = sender.trim_start_matches(':');
-        // keep everything before the first '!'
-        sender = sender.split('!').next().expect("Failed to get first arg");
-        // get the second arg example PRIVMSG
-        let command = split_line.next().expect("Failed to get second arg");
-        // join the rest of the split line
-        let mut message = split_line.clone().collect::<Vec<&str>>().join(" ");
-        // trim the message
-        message = message.trim().to_string();
-
-        let event_type = match command {
-            "464" => EventType::AuthFailed,
-            "001" => EventType::AuthSuccess,
-            "375" => EventType::MotdStart,
-            "372" => EventType::Motd,
-            "376" => EventType::MotdEnd,
-            "QUIT" => EventType::Quit,
-            "PRIVMSG" => {
-                // split the message by spaces
-                let mut split_message = message.split(' ');
-                // get the first word of the message
-                receiver = split_message
-                    .next()
-                    .expect("Failed to get first arg")
-                    .to_string();
-                // trim the receiver from the message
-                message = message.trim_start_matches(&receiver).to_string();
-                // trim a space from the message
-                message = message.trim_start_matches(' ').to_string();
-                // get the first character of the message after the receiver
-                let first_char = message.chars().next().expect("Failed to get first char");
-                // trim the first character from the message
-                message = message.trim_start_matches(first_char).to_string();
-                // match the first character of the message
-                match first_char {
-                    // if it starts with a colon it's a normal message
-                    ':' => (),
-                    // if it's an action the message looks like this
-                    // \x01ACTION is listening to [https://osu.ppy.sh/beatmapsets/57525#/173391 Igorrr - Pavor Nocturnus]\x01
-                    '\x01' => {
-                        // remove the first 11 characters
-                        message.drain(..11);
-                        // remove the last character
-                        message.pop();
-                        // get the first word of the message
-                        let action = message.split(' ').next().expect("Failed to get first arg");
-                        // get the beatmap URL located after after the first [ and up until a space character
-                        let url = message
-                            .split('[')
-                            .nth(1)
-                            .expect("Failed to get second arg")
-                            .split(' ')
-                            .next()
-                            .expect("Failed to get first arg");
-                        // match the action
-                        match action {
-                            "listening" => {}
-                            "playing" => {}
-                            "watching" => {}
-                            "editing" => {}
-                            _ => println!("UNKNOWN ACTION '{}' FROM '{}'", action, line),
-                        }
-                        message = calcul_performance(url).await;
-                    }
-                    _ => println!("UNKNOWN FIRST CHARACTER '{}' FROM '{}'", message, line),
-                }
-                EventType::PrivMsg
-            }
-            _ => {
-                message = line;
-                EventType::Error
-            }
-        };
-        // return the event
-        BanchoEvent {
-            event_type,
-            sender: sender.to_string(),
-            receiver: receiver.to_string(),
-            message,
-        }
-    }
-
-    /**
-     * Send a message to the bancho server
-     * @param message The message to send
-     */
-    pub async fn send_bancho(&mut self, message: String) {
-        // send using reader
-        let response = self.reader.write_all(message.as_bytes()).await;
-        // check if the response is an error
-        match response {
-            Ok(_) => (),
-            Err(e) => println!("Error sending message: {}", e),
-        }
-    }
-}
-
-async fn create_stream() -> TcpStream {
-    const IP_LIST: [&str; 2] = ["irc.ppy.sh", "cho.ppy.sh"];
-    const PORT: u16 = 6667;
-    const RETRY_INTERVAL_MS: u64 = 5000;
-    // create the stream
-    let mut stream: Option<TcpStream> = None;
-    // loop until the stream is successful
-    while stream.is_none() {
-        for ip in IP_LIST {
-            let address = format!("{}:{}", ip, PORT);
-            println!("Connecting to {}", address);
-            match TcpStream::connect(address).await {
-                Ok(s) => {
-                    println!("Connection established with {}:{}", ip, PORT);
-                    stream = Some(s);
-                    break;
-                }
-                Err(_) => {
-                    println!("Connection failed, retrying in {}ms", RETRY_INTERVAL_MS);
-                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_INTERVAL_MS)).await;
-                    continue;
-                }
-            }
-        }
-    }
-    // unwrap the stream
-    let stream = stream.expect("Failed to unwrap stream");
-    // return the stream
-    stream
 }
 
 /**
@@ -268,7 +290,7 @@ async fn create_stream() -> TcpStream {
  * @param url The beatmap URL
  * @return String containing the performance of the beatmap (95, 97, 98, 99, 100% acc)
  */
-pub async fn calcul_performance(url: &str) -> String {
+pub async fn _calcul_performance(url: &str) -> String {
     // TODO move URL parsing beatmap ID to a function
     let beatmap_set_id = url
         .split('#')
@@ -285,7 +307,7 @@ pub async fn calcul_performance(url: &str) -> String {
         .last()
         .expect("Failed to get last arg");
     // download the map
-    let file_name = download_map(beatmap_id.parse().expect("Failed to parse beatmap_id")).await;
+    let file_name = _download_map(beatmap_id.parse().expect("Failed to parse beatmap_id")).await;
     // open the file
     let file = match tokio::fs::File::open(format!("maps/{}", file_name)).await {
         Ok(file) => file,
@@ -324,7 +346,7 @@ pub async fn calcul_performance(url: &str) -> String {
  * @param beatmap_id the beatmap id
  * @return String the file path of the .osu file
  */
-async fn download_map(beatmap_id: i32) -> String {
+async fn _download_map(beatmap_id: i32) -> String {
     let url = format!("https://osu.ppy.sh/osu/{}", beatmap_id);
     // use reqwest to get the file
     let response = reqwest::get(&url).await.unwrap();
