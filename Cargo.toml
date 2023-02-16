@@ -1,6 +1,6 @@
 [package]
 name = "nasus"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "nasus is a blazing fast osu BanchoBot handler 📬"
 repository = "https://github.com/AuracleTech/nasus/"

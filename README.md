@@ -7,8 +7,8 @@ nasus is a blazing fast osu BanchoBot handler 📬
 ```rust,ignore
 use nasus::{Command, Nasus};
 
-#[tokio::test]
-async fn test() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut nasus = Nasus::new("Auracle", "OsuIrcToken", false).await;
 
     while let Some(packet) = nasus.next().await? {
@@ -27,7 +27,6 @@ async fn test() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
-
 ```
 
 #### Info
