@@ -21,7 +21,7 @@ impl Nasus {
      * @param irc_token the irc token of the osu account
      * @param silent if true, don't print anything
      */
-    pub async fn new(username: &str, irc_token: &str, silent: bool) -> Self {
+    pub async fn new(username: &str, irc_token: String, silent: bool) -> Self {
         let reader = banchobot(silent).await;
         let mut nasus = Self {
             reader,
@@ -32,7 +32,7 @@ impl Nasus {
         nasus
     }
 
-    async fn login(&mut self, irc_token: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn login(&mut self, irc_token: String) -> Result<(), Box<dyn std::error::Error>> {
         self.print("Authenticating...");
         let username_format = self.username.replace(" ", "_");
         let login_msg = format!("PASS {}\r\nNICK {}\r\n", irc_token, username_format);
