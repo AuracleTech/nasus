@@ -1,29 +1,29 @@
 pub struct PrivateMessage {
-    pub is_action: bool,
+    pub action: bool,
     pub sender: String,
     pub receiver: String,
     pub message: String,
 }
 
 pub enum Command {
-    ReceivePM(PrivateMessage),
-    SendPM(PrivateMessage),
     AuthSuccess(String),
     AuthFailed(String),
     MOTDStart(String),
     MOTDCentral(String),
     MOTDEnd(String),
+    SendPM(PrivateMessage),
+    ReceivePM(PrivateMessage),
     Quit(String),
     Ping,
     Unknown,
 }
 
-pub struct Order {
+pub struct Packet {
     pub command: Command,
     pub line: String,
 }
 
-impl Order {
+impl Packet {
     pub fn parse(line: String, username: &str) -> Result<Self, Box<dyn std::error::Error>> {
         if line.starts_with("PING") {
             return Ok(Self {
@@ -92,14 +92,14 @@ impl Order {
             "376" => Command::MOTDEnd(message),
             "PRIVMSG" => {
                 let mut pm = PrivateMessage {
-                    is_action: false,
+                    action: false,
                     sender: sender.to_string(),
                     receiver: receiver.to_string(),
                     message: message.to_string(),
                 };
 
                 if pm.message.starts_with('\x01') {
-                    pm.is_action = true;
+                    pm.action = true;
                     pm.message.drain(..8);
                 }
 

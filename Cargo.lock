@@ -422,6 +422,7 @@ dependencies = [
  "peace-performance",
  "reqwest",
  "tokio",
+ "url",
 ]
 
 [[package]]

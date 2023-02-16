@@ -1,12 +1,13 @@
-mod order;
-pub use order::{Command, Order};
-use peace_performance::{Beatmap, BeatmapExt};
+mod packet;
+pub use packet::{Command, Packet};
+use peace_performance::{Beatmap, BeatmapExt, PpResult};
 use reqwest;
 use std::io::Write;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
 };
+use url::Url;
 
 pub struct Nasus {
     reader: BufReader<TcpStream>,
@@ -33,20 +34,14 @@ impl Nasus {
     }
 
     async fn login(&mut self, irc_token: String) -> Result<(), Box<dyn std::error::Error>> {
-        self.print("Authenticating...");
+        shush_print(self.silent, "Authenticating...");
         let username_format = self.username.replace(" ", "_");
         let login_msg = format!("PASS {}\r\nNICK {}\r\n", irc_token, username_format);
         self.send_raw(&login_msg).await?;
         Ok(())
     }
 
-    fn print(&self, msg: &str) {
-        if !self.silent {
-            println!("{}", msg);
-        }
-    }
-
-    pub async fn next(&mut self) -> Result<Option<Order>, Box<dyn std::error::Error>> {
+    pub async fn next(&mut self) -> Result<Option<Packet>, Box<dyn std::error::Error>> {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
 
@@ -55,7 +50,7 @@ impl Nasus {
             self.send_raw(&msg).await?;
         }
 
-        Ok(Some(Order::parse(line, &self.username)?))
+        Ok(Some(Packet::parse(line, &self.username)?))
     }
 
     pub async fn send_raw(&mut self, msg: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -65,14 +60,25 @@ impl Nasus {
 
     // TODO msg rate limit
     // TODO action msg
-    pub async fn privmsg(
+    // TODO return Result instead of ()
+    pub async fn send_pm(
         &mut self,
         target: &str,
         msg: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.send_raw(&format!("PRIVMSG {} :{}\r\n", target, msg))
-            .await?;
-        Ok(())
+        match self
+            .send_raw(&format!("PRIVMSG {} :{}\r\n", target, msg))
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+fn shush_print(silent: bool, msg: &str) {
+    if !silent {
+        println!("{}", msg);
     }
 }
 
@@ -88,16 +94,12 @@ async fn banchobot(silent: bool) -> BufReader<TcpStream> {
 
     let stream: TcpStream;
     let mut ip_index = 0;
-    if !silent {
-        println!("Connecting to BanchoBot...");
-    }
+    shush_print(silent, "Connecting to BanchoBot...");
     loop {
         let addr = format!("{}:{}", BANCHO_IP[ip_index], PORT);
         match TcpStream::connect(&addr).await {
             Ok(s) => {
-                if !silent {
-                    println!("Connected to BanchoBot at {}", addr);
-                }
+                shush_print(silent, &format!("Connected to BanchoBot at {}", addr));
                 stream = s;
                 break;
             }
@@ -116,96 +118,111 @@ async fn banchobot(silent: bool) -> BufReader<TcpStream> {
             }
         }
     }
-    // create a buffered reader
     BufReader::new(stream)
 }
 
-/**
- * Calculate the performance of a beatmap
- * @param url The beatmap URL
- * @return String containing the performance of the beatmap (95, 97, 98, 99, 100% acc)
- */
-pub async fn _calcul_performance(url: &str) -> String {
-    // TODO rework functions
-    // TODO move URL parsing beatmap ID to a function
-    let beatmap_set_id = url
-        .split('#')
-        .next()
-        .expect("Failed to get first arg")
-        .split('/')
-        .last()
-        .expect("Failed to get last arg");
-    let beatmap_id = url
-        .split('#')
-        .last()
-        .expect("Failed to get last arg")
-        .split('/')
-        .last()
-        .expect("Failed to get last arg");
-    // download the map
-    let file_name = _download_map(beatmap_id.parse().expect("Failed to parse beatmap_id")).await;
-    // open the file
-    let file = match tokio::fs::File::open(format!("maps/{}", file_name)).await {
+pub struct ParserResult {
+    pub beatmap_set_id: i32,
+    pub beatmap_id: i32,
+    pub url: Url,
+}
+
+pub fn get_url_from_text(text: &str) -> Result<ParserResult, Box<dyn std::error::Error>> {
+    let parsed_url = if let Some(x) = text.split('[').nth(1) {
+        if let Some(y) = x.split(' ').next() {
+            y
+        } else {
+            return Err("Failed to parse url from text".into());
+        }
+    } else {
+        return Err("Failed to parse url from text".into());
+    };
+
+    let url = match Url::parse(parsed_url) {
+        Ok(url) => {
+            if url.host_str() != Some("osu.ppy.sh") {
+                return Err("The url is not from osu.ppy.sh".into());
+            }
+            url
+        }
+        Err(_) => return Err("Failed to parse url from a string to Url".into()),
+    };
+
+    let beatmap_set_id = if let Some(x) = url.to_string().split('#').next() {
+        if let Some(y) = x.split('/').last() {
+            if let Ok(z) = y.parse::<i32>() {
+                z
+            } else {
+                return Err("Failed to parse beatmap set id from a string to i32".into());
+            }
+        } else {
+            return Err("Failed to parse beatmap set id split by '/'".into());
+        }
+    } else {
+        return Err("Failed to parse beatmap set id split by '#'".into());
+    };
+
+    let beatmap_id = if let Some(x) = url.to_string().split('#').last() {
+        if let Some(y) = x.split('/').last() {
+            if let Ok(z) = y.parse::<i32>() {
+                z
+            } else {
+                return Err("Failed to parse beatmap id from a string to i32".into());
+            }
+        } else {
+            return Err("Failed to parse beatmap id split by '/'".into());
+        }
+    } else {
+        return Err("Failed to parse beatmap id split by '#'".into());
+    };
+
+    Ok(ParserResult {
+        beatmap_set_id,
+        beatmap_id,
+        url,
+    })
+}
+
+// TODO error handling Result on all Option
+pub async fn calc_pp_by_acc(osu_file_full_path: &str, accuracy: f32) -> Option<PpResult> {
+    if accuracy < 0.0 || accuracy > 100.0 {
+        return None;
+    }
+
+    let file = match tokio::fs::File::open(osu_file_full_path).await {
         Ok(file) => file,
         Err(why) => panic!("Could not open file: {}", why),
     };
-    // parse the map asynchronously
-    let map = match Beatmap::parse(file).await {
+
+    let beatmap = match Beatmap::parse(file).await {
         Ok(map) => map,
         Err(why) => panic!("Error while parsing map: {}", why),
     };
-    // TODO pass acc list as a parameter
-    // accuracy list of 95%, 97%, 98%, 99%, 100%
-    let acc = [95.0, 97.0, 98.0, 99.0, 100.0];
-    let mut pp = [0.0, 0.0, 0.0, 0.0, 0.0];
-    // calculate pp for each acc
-    for (i, acc) in acc.iter().enumerate() {
-        pp[i] = map.pp().accuracy(*acc).calculate().await.pp();
-    }
-    // create a string with the pp values
-    // TODO create and return a PerformanceResult struct
-    let mut result = format!(
-        "[https://osu.ppy.sh/beatmapsets/{}#/{} Map] ",
-        beatmap_set_id, beatmap_id
-    );
-    for (i, pp) in pp.iter().enumerate() {
-        result.push_str(&format!("{}%: {}pp | ", acc[i], pp.round()));
-    }
-    // remove the extra separator symbol
-    result.pop();
-    // return the string
-    result
+
+    Some(beatmap.pp().accuracy(accuracy).calculate().await)
 }
 
-/**
- * Download a beatmap using the beatmap id (not the beatmap set id)
- * @param beatmap_id the beatmap id
- * @return String the file path of the .osu file
- */
-async fn _download_map(beatmap_id: i32) -> String {
-    // TODO rework functions
-    let url = format!("https://osu.ppy.sh/osu/{}", beatmap_id);
-    // use reqwest to get the file
-    let response = reqwest::get(&url).await.unwrap();
-    // get the file name from the response
-    let filename = response
-        .url()
-        .path_segments()
-        .unwrap()
-        .last()
-        .unwrap()
-        .to_string();
-    // make sure a folder called 'maps' exists, if not create it
-    std::fs::create_dir_all("maps").expect("Failed to create directory");
-    // create a file with the same name in a folder called 'maps'
-    // TODO implement a long term data storage
-    let mut file =
-        std::fs::File::create(format!("maps/{}", filename)).expect("Failed to create file");
-    // write the response to the file
-    file.write_all(&response.bytes().await.expect("Failed to read bytes"))
-        .expect("Failed to write file");
-    // return the file name
-    // TODO return the full path
-    // TEST verify .osu extension is present
-    filename
+pub async fn download_beatmap_by_id(
+    beatmap_id: &i32,
+    folder: &str,
+    file_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let download_url = format!("https://osu.ppy.sh/osu/{}", beatmap_id);
+    let response = if let Ok(response) = reqwest::get(&download_url).await {
+        response
+    } else {
+        // TODO verify error handling
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to download beatmap",
+        )));
+    };
+
+    std::fs::create_dir_all(folder).expect("Failed to create directory");
+    let full_path = format!("{}/{}", folder, file_name);
+    let mut file = std::fs::File::create(full_path).expect("Failed to create file");
+    let bytes = response.bytes().await?; // TODO verify error handling on all lines with ?
+    file.write_all(&bytes).expect("Failed to write to file");
+
+    Ok(())
 }
