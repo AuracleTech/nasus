@@ -1,4 +1,4 @@
-# jayce
+# nasus
 
 nasus is a blazing fast osu BanchoBot handler 📬
 
