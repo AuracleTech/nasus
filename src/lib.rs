@@ -11,7 +11,6 @@ use tokio::{
 pub struct Nasus {
     reader: BufReader<TcpStream>,
     username: String,
-    irc_token: String,
     silent: bool,
 }
 
@@ -27,17 +26,16 @@ impl Nasus {
         let mut nasus = Self {
             reader,
             username: username.to_string(),
-            irc_token: irc_token.to_string(),
             silent,
         };
-        nasus.login().await.expect("Failed to login");
+        nasus.login(irc_token).await.expect("Failed to login");
         nasus
     }
 
-    async fn login(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn login(&mut self, irc_token: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.print("Authenticating...");
         let username_format = self.username.replace(" ", "_");
-        let login_msg = format!("PASS {}\r\nNICK {}\r\n", self.irc_token, username_format);
+        let login_msg = format!("PASS {}\r\nNICK {}\r\n", irc_token, username_format);
         self.send_raw(&login_msg).await?;
         Ok(())
     }
