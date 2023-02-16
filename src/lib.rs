@@ -130,7 +130,7 @@ pub struct ParserResult {
     pub url: Url,
 }
 
-pub fn get_url_from_text(text: &str) -> Result<ParserResult, Box<dyn std::error::Error>> {
+pub fn parse_url_from_np(text: &str) -> Result<ParserResult, Box<dyn std::error::Error>> {
     let parsed_url = if let Some(x) = text.split('[').nth(1) {
         if let Some(y) = x.split(' ').next() {
             y
@@ -205,7 +205,7 @@ pub async fn calc_pp_by_acc(osu_file_full_path: &str, accuracy: f32) -> Option<P
     Some(beatmap.pp().accuracy(accuracy).calculate().await)
 }
 
-pub async fn download_beatmap_by_id(
+pub async fn download_beatmap_id(
     beatmap_id: &i32,
     folder: &str,
     file_name: &str,

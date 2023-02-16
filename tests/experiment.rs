@@ -19,7 +19,7 @@ async fn verify_application() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
-                let result = nasus::get_url_from_text(&pm.message);
+                let result = nasus::parse_url_from_np(&pm.message);
                 let parsed = match result {
                     Ok(parsed) => parsed,
                     Err(_) => continue,
@@ -30,7 +30,7 @@ async fn verify_application() -> Result<(), Box<dyn std::error::Error>> {
                 let path = format!("{}{}", folder, file);
 
                 if let Err(why) =
-                    nasus::download_beatmap_by_id(&parsed.beatmap_id, &folder, &file).await
+                    nasus::download_beatmap_id(&parsed.beatmap_id, &folder, &file).await
                 {
                     println!("Error while downloading map: {}", why);
                 }
