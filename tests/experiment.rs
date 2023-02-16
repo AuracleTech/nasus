@@ -5,7 +5,7 @@ async fn verify_application() -> Result<(), Box<dyn std::error::Error>> {
     let username = dotenv::var("OSU_USERNAME").expect("OSU_USERNAME must be set");
     let irc_token = dotenv::var("OSU_IRC_AUTH").expect("OSU_IRC_AUTH must be set");
 
-    let mut nasus = Nasus::new(&username, irc_token, false).await;
+    let mut nasus = Nasus::new(&username, &irc_token, false).await;
 
     while let Some(packet) = nasus.next().await? {
         match packet.command {

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "nasus is a blazing fast osu BanchoBot handler 📬"
 repository = "https://github.com/AuracleTech/nasus/"
+license = "MIT"
 
 [dependencies]
 tokio = { version = "1.25.0", features = ["full"] }

@@ -22,14 +22,17 @@ impl Nasus {
      * @param irc_token the irc token of the osu account
      * @param silent if true, don't print anything
      */
-    pub async fn new(username: &str, irc_token: String, silent: bool) -> Self {
+    pub async fn new(username: &str, irc_token: &str, silent: bool) -> Self {
         let reader = banchobot(silent).await;
         let mut nasus = Self {
             reader,
             username: username.to_string(),
             silent,
         };
-        nasus.login(irc_token).await.expect("Failed to login");
+        nasus
+            .login(irc_token.to_string())
+            .await
+            .expect("Failed to login");
         nasus
     }
 
