@@ -51,7 +51,11 @@ async fn verify_application() -> Result<(), Box<dyn std::error::Error>> {
                     result.pp.round()
                 );
 
-                nasus.send_pm(&pm.sender, &response).await?;
+                let result = nasus.send_pm(&pm.sender, &response).await;
+                match result {
+                    Ok(_) => {}
+                    Err(why) => println!("Error while sending response: {}", why),
+                }
             }
             _ => {}
         }
