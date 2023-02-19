@@ -1,29 +1,50 @@
-use nasus::{BanchoClient, BanchoEvent};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use nasus::{BanchoClient, BanchoConfig, CommandKind, OutCommand};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (sender, receiver): (Sender<BanchoEvent>, Receiver<BanchoEvent>) = channel(100);
-    let mut client = BanchoClient::new("irc.ppy.sh".to_string(), 6667, false, receiver);
+    let username = dotenv::var("OSU_USERNAME")?;
+    let irc_token = dotenv::var("OSU_IRC_TOKEN")?;
+    let config = BanchoConfig {
+        host: "irc.ppy.sh".to_string(),
+        port: 6667,
+        bot: false,
+    };
+    let mut client = match BanchoClient::new(config).await {
+        Ok(client) => client,
+        Err(why) => panic!("Error: {}", why),
+    };
 
-    tokio::spawn(async move {
-        while let Some(event) = client.next().await {
-            match event {
-                BanchoEvent::Message(mc) => {
-                    dbg!(mc.irc_command.message);
+    let login_command = OutCommand {
+        kind: CommandKind::Login {
+            username,
+            irc_token,
+        },
+    };
+    client.send_command(login_command).await?;
+
+    while let Some(in_command) = client.next().await? {
+        match in_command.kind {
+            CommandKind::AuthSuccess => println!("Auth success"),
+            CommandKind::AuthFailure => println!("Auth failure"),
+            CommandKind::ReceivePM {
+                sender,
+                receiver,
+                message,
+                action,
+            } => {
+                println!("{}: {}", sender, message);
+                if message.starts_with("!r") {
+                    let out_command = OutCommand {
+                        kind: CommandKind::SendPM {
+                            receiver: sender,
+                            message: "Ice scream".to_string(),
+                        },
+                    };
+                    client.send_command(out_command).await?;
                 }
-                _ => {}
             }
+            _ => {}
         }
-    });
-
-    match client.connect().await {
-        Ok(_) => {}
-        Err(why) => panic!("Error while connecting: {}", why),
-    }
-    match client.login("Auracle", "Password").await {
-        Ok(_) => {}
-        Err(why) => panic!("Error while logging in: {}", why),
     }
 
     Ok(())

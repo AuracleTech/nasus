@@ -1,7 +1,6 @@
 mod bancho_channel;
 mod bancho_channel_user;
 mod bancho_client;
-mod bancho_event;
 mod bancho_lobby;
 mod bancho_lobby_player;
 mod bancho_lobby_player_score;
@@ -12,50 +11,78 @@ mod bancho_multiplayer_channel;
 mod bancho_user;
 mod channel_message;
 mod enums;
-mod event_dispatch;
-mod irc_commands;
 mod parser;
 mod private_message;
 
-pub use bancho_event::BanchoEvent;
-pub use event_dispatch::EventDispatch;
-use tokio::{io::BufReader, net::TcpStream, sync::mpsc::Receiver};
+mod command_kind;
+mod in_command;
+mod out_command;
+use std::error::Error;
+
+pub use command_kind::CommandKind;
+pub use in_command::InCommand;
+pub use out_command::OutCommand;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
+};
+
+pub struct BanchoConfig {
+    pub host: String,
+    pub port: u16,
+    pub bot: bool,
+}
 
 pub struct BanchoClient {
-    port: u16,
-    host: String,
-    bot: bool,
-    receiver: Receiver<BanchoEvent>,
+    pub config: BanchoConfig,
+    pub reader: BufReader<TcpStream>,
 }
 
 impl BanchoClient {
-    pub fn new(host: String, port: u16, bot: bool, receiver: Receiver<BanchoEvent>) -> Self {
-        Self {
-            port,
-            host,
-            bot,
-            receiver,
-        }
+    pub async fn new(config: BanchoConfig) -> Result<Self, Box<dyn Error>> {
+        let addr = format!("{}:{}", config.host, config.port);
+        let stream = match TcpStream::connect(addr).await {
+            Ok(stream) => stream,
+            Err(why) => Err(why)?,
+        };
+        let reader = BufReader::new(stream);
+        Ok(Self { config, reader })
     }
 
-    pub async fn connect(&mut self) -> Result<TcpStream, Box<dyn std::error::Error>> {
-        let result = TcpStream::connect(format!("{}:{}", self.host, self.port)).await;
-        match result {
-            Ok(stream) => Ok(stream),
-            Err(why) => Err(Box::new(why)),
+    pub async fn next(&mut self) -> Result<Option<InCommand>, Box<dyn std::error::Error>> {
+        let mut line = String::new();
+        self.reader.read_line(&mut line).await?;
+        if line.is_empty() {
+            return Ok(None);
         }
+        let in_command = InCommand::parse(line)?;
+        self.process(&mut in_command.clone());
+        Ok(Some(in_command))
     }
 
-    pub async fn login(
+    pub async fn send_command(
         &mut self,
-        username: &str,
-        password: &str,
+        command: OutCommand,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let username_format = username.replace(" ", "_");
-        Ok(()) //TODO
+        self.reader
+            .get_mut()
+            .write_all(command.serialize().as_bytes())
+            .await?;
+        Ok(())
     }
 
-    pub async fn next(&mut self) -> Option<BanchoEvent> {
-        None //TODO
+    pub async fn process(&mut self, in_command: &mut InCommand) -> Result<(), Box<dyn Error>> {
+        match &mut in_command.kind {
+            CommandKind::Ping { line } => {
+                let pong_command = OutCommand {
+                    kind: CommandKind::Pong { line: line.clone() },
+                };
+                match self.send_command(pong_command).await {
+                    Ok(_) => Ok(()),
+                    Err(why) => Err(why),
+                }
+            }
+            _ => Ok(()),
+        }
     }
 }

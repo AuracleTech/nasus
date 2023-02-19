@@ -1,6 +1,3 @@
-use crate::bancho_event::BanchoEvent;
-
-// TODO events
 /**
  * Bancho User
  */
@@ -25,7 +22,6 @@ pub struct BanchoUser {
     country: String,
     total_seconds_played: u32,
     pp_country_rank: u32,
-    events: Vec<BanchoEvent>,
 }
 
 impl BanchoUser {
@@ -51,11 +47,6 @@ impl BanchoUser {
             country: String::new(),
             total_seconds_played: 0,
             pp_country_rank: 0,
-            events: Vec::new(),
         }
-    }
-
-    fn handle_event(&mut self, event: BanchoEvent) {
-        // TODO handle events
     }
 }
