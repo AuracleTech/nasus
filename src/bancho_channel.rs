@@ -1,8 +1,24 @@
-use crate::bancho_user::BanchoUser;
+use crate::{bancho_lobby::BanchoLobby, bancho_user::BanchoUser};
 
-/**
- * Creates an instance of BanchoChannel
- */
+pub struct BanchoChannelUser {
+    user: BanchoUser,
+    channel: BanchoChannel,
+    irc_char: char,
+
+    // TODO IRC letter "v" is "IRC user"
+    // TODO IRC letter "o" is "Moderator"
+    member_mode: String,
+}
+
+struct BanchoMultiplayerChannel {
+    channel: BanchoChannel,
+    lobby: BanchoLobby,
+}
+
+struct ChannelMessage {
+    channel: BanchoChannel,
+}
+
 pub struct BanchoChannel {
     name: String,
     topic: String,

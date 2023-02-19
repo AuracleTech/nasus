@@ -1,18 +1,20 @@
-use crate::command_kind::CommandKind;
-
 #[derive(Clone)]
-pub struct OutCommand {
-    pub kind: CommandKind,
+pub enum OutCommand {
+    Ping,
+    Pong,
+    Login { username: String, irc_token: String },
+    SendPM { receiver: String, message: String },
 }
 
 impl OutCommand {
     pub fn serialize(&self) -> String {
-        match &self.kind {
-            CommandKind::Pong { line } => line.to_string(),
-            CommandKind::SendPM { receiver, message } => {
+        match &self {
+            OutCommand::Ping => "PING :cho.ppy.sh\r\n".to_string(),
+            OutCommand::Pong => "PONG :cho.ppy.sh\r\n".to_string(),
+            OutCommand::SendPM { receiver, message } => {
                 format!("PRIVMSG {} :{}\r\n", receiver, message)
             }
-            CommandKind::Login {
+            OutCommand::Login {
                 username,
                 irc_token,
             } => format!(
@@ -20,7 +22,6 @@ impl OutCommand {
                 irc_token,
                 username.replace(" ", "_")
             ),
-            _ => unimplemented!(),
         }
     }
 }

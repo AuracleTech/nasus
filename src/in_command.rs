@@ -1,10 +1,29 @@
-use super::command_kind::CommandKind;
-
 #[derive(Clone)]
 pub struct InCommand {
     pub line: String,
     pub code: String,
-    pub kind: CommandKind,
+    pub kind: InCommandKind,
+}
+
+#[derive(Clone)]
+pub enum InCommandKind {
+    Ping,
+    Pong,
+    Quit {
+        user: String,
+    },
+    AuthSuccess,
+    AuthFailure,
+    MOTDStart,
+    MOTDMiddle,
+    MOTDEnd,
+    UserNotFound,
+    ReceivePM {
+        sender: String,
+        receiver: String,
+        message: String,
+        action: bool,
+    },
 }
 
 /*
@@ -24,7 +43,7 @@ impl InCommand {
             return Ok(Self {
                 line: line.clone(),
                 code: "PING".to_string(),
-                kind: CommandKind::Ping { line },
+                kind: InCommandKind::Ping,
             });
         }
 
@@ -33,13 +52,15 @@ impl InCommand {
         let prefix = if let Some(first) = split.next() {
             first
         } else {
-            unimplemented!("No prefix found");
+            dbg!(line.clone());
+            Err("sender and code not found")?
         };
 
         let suffix = if let Some(second) = split.next() {
             second.trim()
         } else {
-            unimplemented!("No suffix found");
+            dbg!(line.clone());
+            Err("message not found")?
         };
 
         let sender = if prefix.contains('!') {
@@ -53,40 +74,51 @@ impl InCommand {
         let code = if suffix_parts.len() >= 2 {
             suffix_parts[1]
         } else {
-            unimplemented!("No code found");
+            dbg!(line.clone());
+            Err("code not found")?
         };
 
-        if code == "QUIT" {
-            return Ok(Self {
-                line: line.clone(),
-                code: code.to_string(),
-                kind: CommandKind::Quit { user: sender },
-            });
-        };
+        match code {
+            "PONG" => {
+                return Ok(Self {
+                    line: line.clone(),
+                    code: code.to_string(),
+                    kind: InCommandKind::Pong,
+                })
+            }
+            "QUIT" => {
+                return Ok(Self {
+                    line: line.clone(),
+                    code: code.to_string(),
+                    kind: InCommandKind::Quit { user: sender },
+                })
+            }
+            _ => {}
+        }
 
         let receiver = if suffix_parts.len() >= 3 {
             suffix_parts[2].to_string()
         } else {
-            unimplemented!("No receiver found");
+            dbg!(line.clone());
+            Err("receiver not found")?
         };
 
         let mut message = suffix.to_string();
 
         let data = match code {
-            "464" => CommandKind::AuthFailure,
-            "001" => CommandKind::AuthSuccess,
-            "375" => CommandKind::MOTDStart,
-            "372" => CommandKind::MOTDMiddle,
-            "376" => CommandKind::MOTDEnd,
-            "401" => CommandKind::UserNotFound,
+            "464" => InCommandKind::AuthFailure,
+            "001" => InCommandKind::AuthSuccess,
+            "375" => InCommandKind::MOTDStart,
+            "372" => InCommandKind::MOTDMiddle,
+            "376" => InCommandKind::MOTDEnd,
+            "401" => InCommandKind::UserNotFound,
             "PRIVMSG" => {
                 let mut action = false;
                 if message.starts_with('\x01') {
                     action = true;
                     message.drain(..8);
                 }
-                // FIX might cause an event loop
-                CommandKind::ReceivePM {
+                InCommandKind::ReceivePM {
                     sender,
                     receiver,
                     message,

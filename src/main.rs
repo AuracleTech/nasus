@@ -1,47 +1,43 @@
-use nasus::{BanchoClient, BanchoConfig, CommandKind, OutCommand};
+use nasus::{BanchoConfig, InCommandKind, Nasus, OutCommand};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let username = dotenv::var("OSU_USERNAME")?;
-    let irc_token = dotenv::var("OSU_IRC_TOKEN")?;
     let config = BanchoConfig {
+        username: dotenv::var("OSU_USERNAME")?,
+        irc_token: dotenv::var("OSU_IRC_TOKEN")?,
         host: "irc.ppy.sh".to_string(),
         port: 6667,
         bot: false,
     };
-    let mut client = match BanchoClient::new(config).await {
-        Ok(client) => client,
+    let mut nasus = match Nasus::new(config).await {
+        Ok(nasus) => nasus,
         Err(why) => panic!("Error: {}", why),
     };
 
-    let login_command = OutCommand {
-        kind: CommandKind::Login {
-            username,
-            irc_token,
-        },
-    };
-    client.send_command(login_command).await?;
+    nasus.send_command(OutCommand::Ping).await?;
 
-    while let Some(in_command) = client.next().await? {
+    while let Some(in_command) = nasus.next().await? {
         match in_command.kind {
-            CommandKind::AuthSuccess => println!("Auth success"),
-            CommandKind::AuthFailure => println!("Auth failure"),
-            CommandKind::ReceivePM {
+            InCommandKind::AuthSuccess => println!("Auth success"),
+            InCommandKind::AuthFailure => println!("Auth failure"),
+            InCommandKind::ReceivePM {
                 sender,
                 receiver,
                 message,
                 action,
             } => {
                 println!("{}: {}", sender, message);
-                if message.starts_with("!r") {
-                    let out_command = OutCommand {
-                        kind: CommandKind::SendPM {
-                            receiver: sender,
-                            message: "Ice scream".to_string(),
-                        },
-                    };
-                    client.send_command(out_command).await?;
-                }
+
+                let reply = match action {
+                    true => "I see what you did there",
+                    false => "I'm not a bot, I swear!",
+                };
+                let out_command = OutCommand::SendPM {
+                    receiver: sender,
+                    message: reply.to_string(),
+                };
+                nasus.send_command(out_command).await?;
+                println!("{}: {}", receiver, reply);
             }
             _ => {}
         }

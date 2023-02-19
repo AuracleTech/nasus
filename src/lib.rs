@@ -1,27 +1,17 @@
 mod bancho_channel;
-mod bancho_channel_user;
-mod bancho_client;
 mod bancho_lobby;
-mod bancho_lobby_player;
-mod bancho_lobby_player_score;
-mod bancho_lobby_regexes;
-mod bancho_message;
 mod bancho_mod;
-mod bancho_multiplayer_channel;
 mod bancho_user;
-mod channel_message;
 mod enums;
 mod parser;
-mod private_message;
 
-mod command_kind;
 mod in_command;
 mod out_command;
-use std::error::Error;
 
-pub use command_kind::CommandKind;
 pub use in_command::InCommand;
+pub use in_command::InCommandKind;
 pub use out_command::OutCommand;
+use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
@@ -31,14 +21,16 @@ pub struct BanchoConfig {
     pub host: String,
     pub port: u16,
     pub bot: bool,
+    pub username: String,
+    pub irc_token: String,
 }
 
-pub struct BanchoClient {
+pub struct Nasus {
     pub config: BanchoConfig,
     pub reader: BufReader<TcpStream>,
 }
 
-impl BanchoClient {
+impl Nasus {
     pub async fn new(config: BanchoConfig) -> Result<Self, Box<dyn Error>> {
         let addr = format!("{}:{}", config.host, config.port);
         let stream = match TcpStream::connect(addr).await {
@@ -46,7 +38,18 @@ impl BanchoClient {
             Err(why) => Err(why)?,
         };
         let reader = BufReader::new(stream);
-        Ok(Self { config, reader })
+        let mut nasus = Self { config, reader };
+        nasus.login().await?;
+        Ok(nasus)
+    }
+
+    pub async fn login(&mut self) -> Result<(), Box<dyn Error>> {
+        let login_command = OutCommand::Login {
+            username: self.config.username.clone(),
+            irc_token: self.config.irc_token.clone(),
+        };
+        self.send_command(login_command).await?;
+        Ok(())
     }
 
     pub async fn next(&mut self) -> Result<Option<InCommand>, Box<dyn std::error::Error>> {
@@ -56,7 +59,7 @@ impl BanchoClient {
             return Ok(None);
         }
         let in_command = InCommand::parse(line)?;
-        self.process(&mut in_command.clone());
+        self.process(&mut in_command.clone()).await?;
         Ok(Some(in_command))
     }
 
@@ -73,15 +76,10 @@ impl BanchoClient {
 
     pub async fn process(&mut self, in_command: &mut InCommand) -> Result<(), Box<dyn Error>> {
         match &mut in_command.kind {
-            CommandKind::Ping { line } => {
-                let pong_command = OutCommand {
-                    kind: CommandKind::Pong { line: line.clone() },
-                };
-                match self.send_command(pong_command).await {
-                    Ok(_) => Ok(()),
-                    Err(why) => Err(why),
-                }
-            }
+            InCommandKind::Ping => match self.send_command(OutCommand::Pong).await {
+                Ok(_) => Ok(()),
+                Err(why) => Err(why),
+            },
             _ => Ok(()),
         }
     }
