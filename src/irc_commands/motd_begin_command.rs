@@ -1,5 +1,5 @@
 use super::DefaultCommand;
 
-pub struct WhoisUserCommand {
+pub struct MotdBeginCommand {
     irc_command: DefaultCommand,
 }

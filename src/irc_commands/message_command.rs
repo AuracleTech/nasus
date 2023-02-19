@@ -1,5 +1,5 @@
-use super::IrcCommand;
+use super::DefaultCommand;
 
-struct MessageCommand {
-    irc_command: IrcCommand,
+pub struct MessageCommand {
+    pub irc_command: DefaultCommand,
 }

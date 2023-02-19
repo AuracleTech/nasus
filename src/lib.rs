@@ -17,25 +17,24 @@ mod irc_commands;
 mod parser;
 mod private_message;
 
-use std::collections::HashMap;
-
+pub use bancho_event::BanchoEvent;
 pub use event_dispatch::EventDispatch;
-use tokio::net::TcpStream;
+use tokio::{io::BufReader, net::TcpStream, sync::mpsc::Receiver};
 
 pub struct BanchoClient {
     port: u16,
     host: String,
     bot: bool,
-    events: HashMap<String, Box<dyn FnMut() + Send>>,
+    receiver: Receiver<BanchoEvent>,
 }
 
 impl BanchoClient {
-    pub fn new(host: String, port: u16, bot: bool) -> Self {
+    pub fn new(host: String, port: u16, bot: bool, receiver: Receiver<BanchoEvent>) -> Self {
         Self {
             port,
             host,
             bot,
-            events: HashMap::new(),
+            receiver,
         }
     }
 
@@ -45,5 +44,18 @@ impl BanchoClient {
             Ok(stream) => Ok(stream),
             Err(why) => Err(Box::new(why)),
         }
+    }
+
+    pub async fn login(
+        &mut self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let username_format = username.replace(" ", "_");
+        Ok(()) //TODO
+    }
+
+    pub async fn next(&mut self) -> Option<BanchoEvent> {
+        None //TODO
     }
 }

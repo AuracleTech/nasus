@@ -1,5 +1,5 @@
-use super::IrcCommand;
+use super::DefaultCommand;
 
-pub struct WhoisChannelsCommand {
-    irc_command: IrcCommand,
+pub struct WhoisChannelCommand {
+    irc_command: DefaultCommand,
 }

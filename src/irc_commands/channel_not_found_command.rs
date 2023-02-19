@@ -1,5 +1,5 @@
-use super::IrcCommand;
+use super::DefaultCommand;
 
 pub struct ChannelNotFoundCommand {
-    irc_command: IrcCommand,
+    irc_command: DefaultCommand,
 }

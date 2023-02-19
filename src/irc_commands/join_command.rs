@@ -1,9 +1,9 @@
 use crate::{bancho_channel::BanchoChannel, bancho_user::BanchoUser};
 
-use super::IrcCommand;
+use super::DefaultCommand;
 
-struct JoinCommand {
-    irc_command: IrcCommand,
+pub struct JoinCommand {
+    irc_command: DefaultCommand,
     user: BanchoUser,
     channel: BanchoChannel,
 }

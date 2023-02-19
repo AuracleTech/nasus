@@ -1,5 +1,5 @@
-use super::IrcCommand;
+use super::DefaultCommand;
 
-struct BadAuthCommand {
-    irc_command: IrcCommand,
+pub struct BadAuthCommand {
+    irc_command: DefaultCommand,
 }

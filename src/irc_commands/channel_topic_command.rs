@@ -1,5 +1,5 @@
-use super::IrcCommand;
+use super::DefaultCommand;
 
 pub struct ChannelTopicCommand {
-    irc_command: IrcCommand,
+    irc_command: DefaultCommand,
 }
