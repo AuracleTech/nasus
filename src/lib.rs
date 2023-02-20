@@ -91,10 +91,14 @@ impl Nasus {
         &mut self,
         command: CmdOut,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.reader
+        let res = self
+            .reader
             .get_mut()
             .write_all(command.serialize().as_bytes())
-            .await?;
-        Ok(())
+            .await;
+        match res {
+            Ok(_) => Ok(()),
+            Err(why) => Err(why)?,
+        }
     }
 }
