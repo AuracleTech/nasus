@@ -1,16 +1,8 @@
-mod bancho_channel;
-mod bancho_lobby;
-mod bancho_mod;
-mod bancho_user;
-mod enums;
-mod parser;
+mod cmd_in;
+mod cmd_out;
 
-mod in_command;
-mod out_command;
-
-pub use in_command::InCommand;
-pub use in_command::InCommandKind;
-pub use out_command::OutCommand;
+pub use cmd_in::CmdIn;
+pub use cmd_out::CmdOut;
 use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -28,6 +20,8 @@ pub struct BanchoConfig {
 pub struct Nasus {
     pub config: BanchoConfig,
     pub reader: BufReader<TcpStream>,
+    pub inputs: Vec<CmdIn>,
+    pub outputs: Vec<CmdOut>,
 }
 
 impl Nasus {
@@ -38,49 +32,69 @@ impl Nasus {
             Err(why) => Err(why)?,
         };
         let reader = BufReader::new(stream);
-        let mut nasus = Self { config, reader };
+        let mut nasus = Self {
+            config,
+            reader,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        };
         nasus.login().await?;
         Ok(nasus)
     }
 
     pub async fn login(&mut self) -> Result<(), Box<dyn Error>> {
-        let login_command = OutCommand::Login {
+        let login_command = CmdOut::Login {
             username: self.config.username.clone(),
             irc_token: self.config.irc_token.clone(),
         };
-        self.send_command(login_command).await?;
+        self.write_command(login_command).await?;
         Ok(())
     }
 
-    pub async fn next(&mut self) -> Result<Option<InCommand>, Box<dyn std::error::Error>> {
-        let mut line = String::new();
-        self.reader.read_line(&mut line).await?;
-        if line.is_empty() {
-            return Ok(None);
+    pub async fn work(&mut self) -> Result<(), Box<dyn Error>> {
+        match self.read().await {
+            Ok(_) => {}
+            Err(why) => panic!("Error: {}", why),
         }
-        let in_command = InCommand::parse(line)?;
-        self.process(&mut in_command.clone()).await?;
-        Ok(Some(in_command))
+        match self.write().await {
+            Ok(_) => {}
+            Err(why) => panic!("Error: {}", why),
+        }
+        Ok(())
     }
 
-    pub async fn send_command(
+    pub async fn read(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut line = String::new();
+        self.reader.read_line(&mut line).await?;
+        let cmd_in = CmdIn::parse(line)?;
+        match cmd_in {
+            CmdIn::Ping => match self.write_command(CmdOut::Pong).await {
+                Ok(_) => {}
+                Err(why) => Err(why)?,
+            },
+            _ => {}
+        }
+        self.inputs.push(cmd_in);
+        Ok(())
+    }
+
+    pub async fn write(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.outputs.is_empty() {
+            return Ok(());
+        }
+        let cmd_out = self.outputs.remove(0);
+        self.write_command(cmd_out).await?;
+        Ok(())
+    }
+
+    pub async fn write_command(
         &mut self,
-        command: OutCommand,
+        command: CmdOut,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.reader
             .get_mut()
             .write_all(command.serialize().as_bytes())
             .await?;
         Ok(())
-    }
-
-    pub async fn process(&mut self, in_command: &mut InCommand) -> Result<(), Box<dyn Error>> {
-        match &mut in_command.kind {
-            InCommandKind::Ping => match self.send_command(OutCommand::Pong).await {
-                Ok(_) => Ok(()),
-                Err(why) => Err(why),
-            },
-            _ => Ok(()),
-        }
     }
 }

@@ -1,20 +1,20 @@
-#[derive(Clone)]
-pub enum OutCommand {
-    Ping,
-    Pong,
+#[derive(Clone, Debug)]
+pub enum CmdOut {
     Login { username: String, irc_token: String },
     SendPM { receiver: String, message: String },
+    Ping,
+    Pong,
 }
 
-impl OutCommand {
+impl CmdOut {
     pub fn serialize(&self) -> String {
         match &self {
-            OutCommand::Ping => "PING :cho.ppy.sh\r\n".to_string(),
-            OutCommand::Pong => "PONG :cho.ppy.sh\r\n".to_string(),
-            OutCommand::SendPM { receiver, message } => {
+            CmdOut::Ping => "PING :cho.ppy.sh\r\n".to_string(),
+            CmdOut::Pong => "PONG :cho.ppy.sh\r\n".to_string(),
+            CmdOut::SendPM { receiver, message } => {
                 format!("PRIVMSG {} :{}\r\n", receiver, message)
             }
-            OutCommand::Login {
+            CmdOut::Login {
                 username,
                 irc_token,
             } => format!(
