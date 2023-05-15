@@ -9,16 +9,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 6667,
         bot: false,
     };
-    let mut nasus = match Nasus::new(config).await {
-        Ok(nasus) => nasus,
-        Err(why) => panic!("Error: {}", why),
-    };
+    let mut nasus = Nasus::new(config).await?;
 
     loop {
-        match nasus.work().await {
-            Ok(_) => {}
-            Err(why) => panic!("Error: {}", why),
-        }
+        nasus.work().await?;
 
         match nasus.inputs.pop() {
             Some(cmd_in) => match cmd_in {
