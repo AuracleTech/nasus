@@ -3,11 +3,13 @@ mod cmd_out;
 
 pub use cmd_in::CmdIn;
 pub use cmd_out::CmdOut;
-use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
 };
+
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type NasusResult<T> = Result<T, Error>;
 
 pub struct BanchoConfig {
     pub host: String,
@@ -25,7 +27,7 @@ pub struct Nasus {
 }
 
 impl Nasus {
-    pub async fn new(config: BanchoConfig) -> Result<Self, Box<dyn Error>> {
+    pub async fn new(config: BanchoConfig) -> NasusResult<Self> {
         let addr = format!("{}:{}", config.host, config.port);
         let stream = match TcpStream::connect(addr).await {
             Ok(stream) => stream,
@@ -42,7 +44,7 @@ impl Nasus {
         Ok(nasus)
     }
 
-    pub async fn login(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn login(&mut self) -> NasusResult<()> {
         let login_command = CmdOut::Login {
             username: self.config.username.clone(),
             irc_token: self.config.irc_token.clone(),
@@ -51,7 +53,7 @@ impl Nasus {
         Ok(())
     }
 
-    pub async fn work(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn work(&mut self) -> NasusResult<()> {
         match self.read().await {
             Ok(_) => {}
             Err(why) => panic!("Error: {}", why),
@@ -63,7 +65,7 @@ impl Nasus {
         Ok(())
     }
 
-    pub async fn read(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn read(&mut self) -> NasusResult<()> {
         let mut line = String::new();
         self.reader.read_line(&mut line).await?;
         let cmd_in = CmdIn::parse(line)?;
@@ -78,7 +80,7 @@ impl Nasus {
         Ok(())
     }
 
-    pub async fn write(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn write(&mut self) -> NasusResult<()> {
         if self.outputs.is_empty() {
             return Ok(());
         }
@@ -90,7 +92,7 @@ impl Nasus {
     pub async fn write_command(
         &mut self,
         command: CmdOut,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> NasusResult<()> {
         let res = self
             .reader
             .get_mut()
