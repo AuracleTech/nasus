@@ -1,3 +1,5 @@
+use crate::NasusResult;
+
 #[derive(Clone, Debug)]
 pub enum CmdIn {
     AuthSuccess {
@@ -29,8 +31,9 @@ pub enum CmdIn {
     Pong,
 }
 
+
 impl CmdIn {
-    pub fn parse(line: String) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn parse(line: String) -> NasusResult<Self> {
         if line.starts_with("PING") {
             return Ok(CmdIn::Ping);
         }
